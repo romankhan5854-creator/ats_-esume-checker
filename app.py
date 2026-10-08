@@ -10,10 +10,27 @@ import os
 import re
 
 import streamlit as st
-from docx import Document
-from google import genai
-from google.genai import types
-from pypdf import PdfReader
+
+# Third-party packages are imported safely so that, if one is missing on the
+# server, the app shows a clear message instead of crashing.
+MISSING_PACKAGES = []
+try:
+    from docx import Document
+except ImportError:
+    Document = None
+    MISSING_PACKAGES.append("python-docx")
+try:
+    from pypdf import PdfReader
+except ImportError:
+    PdfReader = None
+    MISSING_PACKAGES.append("pypdf")
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    genai = None
+    types = None
+    MISSING_PACKAGES.append("google-genai")
 
 # Change this if Google retires/renames the model. You can also set it as
 # a secret or environment variable called GEMINI_MODEL.
@@ -86,6 +103,8 @@ def extract_text(file_name: str, data: bytes) -> str:
     """Return plain text from a PDF, DOCX or TXT file's bytes."""
     name = file_name.lower()
     if name.endswith(".pdf"):
+        if PdfReader is None:
+            raise ValueError("The 'pypdf' package is not installed.")
         try:
             reader = PdfReader(io.BytesIO(data))
         except Exception:
@@ -98,6 +117,8 @@ def extract_text(file_name: str, data: bytes) -> str:
         pages = [(page.extract_text() or "") for page in reader.pages]
         return "\n".join(pages).strip()
     if name.endswith(".docx"):
+        if Document is None:
+            raise ValueError("The 'python-docx' package is not installed.")
         doc = Document(io.BytesIO(data))
         parts = [p.text for p in doc.paragraphs if p.text.strip()]
         for table in doc.tables:
@@ -284,6 +305,21 @@ def main() -> None:
     st.set_page_config(page_title="ATS Resume Checker", page_icon="📄", layout="wide")
     st.title("📄 ATS Resume Checker")
     st.write("Upload your resume to get an ATS score and tips to improve it.")
+
+    if MISSING_PACKAGES:
+        st.error(
+            "These packages are not installed on the server: "
+            + ", ".join(MISSING_PACKAGES)
+        )
+        st.write(
+            "Add a file named **requirements.txt** (exact name, in the same folder "
+            "as app.py) to your GitHub repo with this content, then reboot the app:"
+        )
+        st.code(
+            "streamlit>=1.40.0\ngoogle-genai>=1.0.0\npypdf>=5.0.0\npython-docx>=1.1.0",
+            language="text",
+        )
+        st.stop()
 
     api_key = get_secret("GEMINI_API_KEY")
     model = get_secret("GEMINI_MODEL", DEFAULT_MODEL)
